@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import cytoscape from 'cytoscape'
-import { initialNodes, initialEdges, generateExpansion, NodeData } from '../data/mockData'
+import { initialNodes, initialEdges, generateExpansion, NodeData, EdgeData } from '../data/mockData'
 import { nodeIcons } from '../utils/nodeIcons'
 
 interface GraphViewProps {
@@ -15,9 +15,41 @@ const GraphView = ({ onNodeSelect, searchResults }: GraphViewProps) => {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Use search results if available, otherwise use all nodes
-    const nodes = searchResults ? searchResults.nodes : initialNodes;
-    const edges = searchResults ? searchResults.edges : initialEdges;
+    // Use search results if available, otherwise use initialNodes
+    // FILTER LOGIC: If explicit search results are passed, show them.
+    // Otherwise, show initialNodes BUT exclude the "Expansion Children" (Personnel) initially.
+    // They will be added dynamically on click.
+    let nodes: { data: NodeData }[] = [];
+    let edges: { data: EdgeData }[] = [];
+
+    if (searchResults) {
+      nodes = searchResults.nodes;
+      edges = searchResults.edges;
+    } else {
+      // Initial State: Show only MOFA + Minister
+      // Hide ALL divisions and ALL personnel
+      const divisionIds = initialNodes
+        .filter(n => n.data.id.startsWith('DIV-EX'))
+        .map(n => n.data.id);
+
+      const personnelIds = initialNodes
+        .filter(n =>
+          n.data.id.startsWith('PER-EUR') ||
+          n.data.id.startsWith('PER-CT') ||
+          n.data.id.startsWith('PER-AUD') ||
+          n.data.id.startsWith('PER-UN') ||
+          n.data.id === 'PER-SADIA-IQBAL'
+        )
+        .map(n => n.data.id);
+
+      const hiddenNodeIds = [...divisionIds, ...personnelIds];
+
+      nodes = initialNodes.filter(n => !hiddenNodeIds.includes(n.data.id));
+      edges = initialEdges.filter(e =>
+        !hiddenNodeIds.includes(e.data.target) &&
+        !hiddenNodeIds.includes(e.data.source)
+      );
+    }
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -168,7 +200,85 @@ const GraphView = ({ onNodeSelect, searchResults }: GraphViewProps) => {
     // Event Listeners
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
+      const nodeId = node.id();
+
       onNodeSelect(node.data() as NodeData);
+
+      // MINISTER EXPANSION: Show only 4 specific divisions
+      if (nodeId === 'MINISTER-001') {
+        const targetDivisions = ['DIV-EX-7', 'DIV-EX-11', 'DIV-EX-12', 'DIV-EX-10']; // Europe, CT, Audit, UN
+
+        const divisionNodes = initialNodes.filter(n => targetDivisions.includes(n.data.id));
+        const nodesToAdd = divisionNodes.filter(n => cy.getElementById(n.data.id).empty());
+
+        if (nodesToAdd.length > 0) {
+          const divisionNodeIds = nodesToAdd.map(n => n.data.id);
+          const edgesToAdd = initialEdges.filter(e =>
+            (divisionNodeIds.includes(e.data.source) || divisionNodeIds.includes(e.data.target)) &&
+            (cy.getElementById(e.data.source).nonempty() || divisionNodeIds.includes(e.data.source)) &&
+            (cy.getElementById(e.data.target).nonempty() || divisionNodeIds.includes(e.data.target))
+          );
+
+          cy.add([...nodesToAdd, ...edgesToAdd]);
+
+          cy.layout({
+            name: 'cose',
+            animate: true,
+            animationDuration: 600,
+            fit: false,
+            nodeRepulsion: 1200000,
+            idealEdgeLength: 150,
+            padding: 30
+          }).run();
+        }
+        return; // Exit early to prevent division expansion logic from running
+      }
+
+      // DIVISION EXPANSION: Show personnel for clicked division
+      // Mapping Division ID to Prefix/Type for expansion
+      const expansionMap: Record<string, string> = {
+        'DIV-EX-7': 'PER-EUR', // Europe
+        'DIV-EX-11': 'PER-CT', // Counter Terrorism
+        'DIV-EX-12': 'PER-AUD', // Audit
+        'DIV-EX-10': 'PER-UN'   // United Nations
+      };
+
+      if (expansionMap[nodeId]) {
+        const prefix = expansionMap[nodeId];
+
+        // Find nodes in initialNodes that start with this prefix
+        // AND are not already in the graph
+        const childNodes = initialNodes.filter(n =>
+          n.data.id.startsWith(prefix) ||
+          (nodeId === 'DIV-EX-10' && n.data.id === 'PER-SADIA-IQBAL')
+        );
+
+        const nodesToAdd = childNodes.filter(n => cy.getElementById(n.data.id).empty());
+
+        if (nodesToAdd.length > 0) {
+          // Find edges connected to these new nodes
+          const childNodeIds = nodesToAdd.map(n => n.data.id);
+          const edgesToAdd = initialEdges.filter(e =>
+            (childNodeIds.includes(e.data.source) || childNodeIds.includes(e.data.target)) &&
+            // Ensure the other end of the edge is already in the graph or is also being added
+            (cy.getElementById(e.data.source).nonempty() || childNodeIds.includes(e.data.source) || e.data.source === nodeId) &&
+            (cy.getElementById(e.data.target).nonempty() || childNodeIds.includes(e.data.target) || e.data.target === nodeId)
+          );
+
+          cy.add([...nodesToAdd, ...edgesToAdd]);
+
+          // Re-layout nicely
+          cy.layout({
+            name: 'cose',
+            animate: true,
+            animationDuration: 600,
+            fit: false,
+            nodeRepulsion: 1200000,
+            idealEdgeLength: 100, // Shorter for children
+            padding: 30
+          }).run();
+        }
+      }
     });
 
     cy.on('tap', (evt) => {
@@ -177,7 +287,7 @@ const GraphView = ({ onNodeSelect, searchResults }: GraphViewProps) => {
       }
     });
 
-    // Custom Event Listener for Expansion
+    // Custom Event Listener for Expansion (Existing logic retained if needed for other parts)
     const handleExpandEvent = (e: Event) => {
       const customEvent = e as CustomEvent;
       const { nodeId } = customEvent.detail;

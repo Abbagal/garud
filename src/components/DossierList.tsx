@@ -140,9 +140,24 @@ const DossierItemView = ({ item }: { item: DossierItem }) => {
                                     </pre>
                                 </div>
                             </div>
-                            <button className="w-full mt-2 text-[10px] text-center text-emerald-500/50 hover:text-emerald-400 py-1 transition-colors">
-                                DOWNLOAD FULL FILE (ENCRYPTED)
-                            </button>
+                            {item.fileName ? (
+                                <a
+                                    href={`/documents/${encodeURIComponent(item.fileName)}`}
+                                    download={item.fileName}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full mt-2 text-[10px] text-center block py-1 transition-colors border border-dashed rounded text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer"
+                                    onClick={(e) => {
+                                        // Allow default behavior but ensure target="_blank" handles it or use the download attribute
+                                    }}
+                                >
+                                    DOWNLOAD FILE ({item.fileName.split('.').pop()?.toUpperCase()})
+                                </a>
+                            ) : (
+                                <div className="w-full mt-2 text-[10px] text-center block py-1 transition-colors border border-dashed rounded text-slate-600 border-slate-700 cursor-not-allowed">
+                                    FILE UNAVAILABLE
+                                </div>
+                            )}
                         </div>
                     </motion.div>
                 )}
@@ -150,5 +165,4 @@ const DossierItemView = ({ item }: { item: DossierItem }) => {
         </div>
     )
 }
-
 export default DossierList
